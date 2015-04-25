@@ -5,6 +5,7 @@ import os
 
 class Keyboard:
     fd = -1
+    paused = False
     def __init__(self, dev_path='/dev/input/event3'):
         self.dev = ev.InputDevice(dev_path)
 
@@ -37,6 +38,7 @@ class Keyboard:
         gobject.io_add_watch(self.dev, gobject.IO_IN, self.ev_cb)
 
     def update_state(self):
+        retval = True
         event = self.event
         evdev_code = ev.ecodes.KEY[event.code]
         modkey_element = keymap.modkey(evdev_code)
@@ -49,26 +51,32 @@ class Keyboard:
         else:
             # Get the hex keycode of the key
             hex_key = keymap.convert(ev.ecodes.KEY[event.code])
+            is_key_pause = (hex_key == keymap.keytable['KEY_PAUSE'])
+            if is_key_pause:
+                retval = False
             # Loop through elements 4 to 9 of the input report structure
             for i in range (4, 10):
                 if self.state[i] == hex_key and event.value == 0:
                     # Code is 0 so we need to depress it
                     self.state[i] = 0x00
+                    if is_key_pause:
+                        self.paused = not self.paused
+                        print("PAUSED: {}".format(self.paused))
                 elif self.state[i] == 0x00 and event.value == 1:
                     # If the current space is empty and the key is being pressed
                     self.state[i] = hex_key
                     break
+        return retval
 
     def ev_cb(self, dev, io_type):
         event = dev.read_one()
         if event.type == ev.ecodes.EV_KEY and event.value < 2:
             self.event = event
-            self.update_state()
-
-            try:
-                self.sock.send(self.to_bstr())
-            except Exception as e:
-                print(e, e.message)
+            if self.update_state() and not self.paused:
+                try:
+                    self.sock.send(self.to_bstr())
+                except Exception as e:
+                    print(e, e.message)
 
         return True
 
